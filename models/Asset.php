@@ -966,77 +966,106 @@ class Asset extends Element\AbstractElement
             throw new Exception('root-node cannot be deleted');
         }
 
-        $this->dispatchEvent(new AssetEvent($this), AssetEvents::PRE_DELETE);
-
-        $this->beginTransaction();
+        if (!$isNested) {
+            $deletedPaths = [];
+            $deletedIds = [];
+        }
 
         try {
-            $this->closeStream();
+            $this->dispatchEvent(new AssetEvent($this), AssetEvents::PRE_DELETE);
 
-            // remove children
-            if ($this->hasChildren()) {
-                foreach ($this->getChildren() as $child) {
-                    $child->delete(true);
+            $maxRetries = 5;
+            for ($retries = 0; $retries < $maxRetries; $retries++) {
+                $this->beginTransaction();
+
+                try {
+                    $this->closeStream();
+
+                    // remove children
+                    if ($this->hasChildren()) {
+                        foreach ($this->getChildren() as $child) {
+                            $child->delete(true);
+                            $deletedPaths[] = $child->getRealPath() . $child->getId();
+                            $deletedIds[] = $child->getId();
+                        }
+                    }
+
+                    // Dispatch Symfony Message Bus to delete versions
+                    Pimcore::getContainer()->get('messenger.bus.pimcore-core')->dispatch(
+                        new VersionDeleteMessage(Service::getElementType($this), $this->getId())
+                    );
+
+                    // remove all properties
+                    $this->getDao()->deleteAllProperties();
+
+                    // remove all tasks
+                    $this->getDao()->deleteAllTasks();
+
+                    // remove dependencies
+                    $d = $this->getDependencies();
+                    $d->cleanAllForElement($this);
+
+                    // remove from resource
+                    $this->getDao()->delete();
+
+                    $this->commit();
+
+                    // remove file on filesystem
+                    if (!$isNested) {
+                        $deletedPaths[] = $this->getRealPath() . $this->getId();
+                        $deletedIds[] = $this->getId();
+
+                        $fullPath = $this->getRealFullPath();
+                        if ($fullPath != '/..' && !strpos($fullPath,
+                                '/../') && $this->getKey() !== '.' && $this->getKey() !== '..') {
+                            $this->deletePhysicalFile();
+                        }
+
+                        $this->clearThumbnailsByPaths($deletedPaths);
+                        $this->getDao()->deleteFromThumbnailCacheByIds($deletedIds);
+                        //remove target parent folder preview thumbnails
+                        $this->clearFolderThumbnails($this);
+                    }
+                    break; // transaction was successfully completed, so we cancel the loop here -> no restart required
+
+                } catch (Exception $e) {
+                    try {
+                        $this->rollBack();
+                    } catch (Exception $er) {
+                        // PDO adapter throws exceptions if rollback fails
+                        Logger::info((string)$er);
+                    }
+
+                    if ($e instanceof DeadlockException && $retries < ($maxRetries - 1)) {
+                        $run = $retries + 1;
+                        $waitTime = rand(1, 5) * 100000; // microseconds
+                        Logger::warn('Unable to finish transaction (' . $run . ". run) because of the following reason '" . $e->getMessage() . "'. --> Retrying in " . $waitTime . ' microseconds ... (' . ($run + 1) . ' of ' . $maxRetries . ')');
+
+                        usleep($waitTime); // wait specified time until we restart the transaction
+                    } else {
+                        // if the transaction still fail after $maxRetries retries, we throw out the exception
+                        throw $e;
+                    }
                 }
             }
 
-            // Dispatch Symfony Message Bus to delete versions
-            Pimcore::getContainer()->get('messenger.bus.pimcore-core')->dispatch(
-                new VersionDeleteMessage(Service::getElementType($this), $this->getId())
-            );
+            // empty asset cache
+            $this->clearDependentCache();
 
-            // remove all properties
-            $this->getDao()->deleteAllProperties();
+            // clear asset from registry
+            RuntimeCache::set(self::getCacheKey($this->getId()), null);
 
-            // remove all tasks
-            $this->getDao()->deleteAllTasks();
-
-            // remove dependencies
-            $d = $this->getDependencies();
-            $d->cleanAllForElement($this);
-
-            // remove from resource
-            $this->getDao()->delete();
-
-            $this->commit();
-
-            // remove file on filesystem
-            if (!$isNested) {
-                $fullPath = $this->getRealFullPath();
-                if ($fullPath != '/..' && !strpos($fullPath,
-                    '/../') && $this->getKey() !== '.' && $this->getKey() !== '..') {
-                    $this->deletePhysicalFile();
-                }
-
-                //remove target parent folder preview thumbnails
-                $this->clearFolderThumbnails($this);
-            }
-
-            $this->clearThumbnails(true);
+            $this->dispatchEvent(new AssetEvent($this), AssetEvents::POST_DELETE);
 
         } catch (Exception $e) {
-            try {
-                $this->rollBack();
-            } catch (Exception $er) {
-                // PDO adapter throws exceptions if rollback fails
-                Logger::info((string) $er);
-            }
 
             $failureEvent = new AssetEvent($this);
             $failureEvent->setArgument('exception', $e);
             $this->dispatchEvent($failureEvent, AssetEvents::POST_DELETE_FAILURE);
-            Logger::crit((string) $e);
+            Logger::crit((string)$e);
 
             throw $e;
         }
-
-        // empty asset cache
-        $this->clearDependentCache();
-
-        // clear asset from registry
-        RuntimeCache::set(self::getCacheKey($this->getId()), null);
-
-        $this->dispatchEvent(new AssetEvent($this), AssetEvents::POST_DELETE);
     }
 
     public function clearDependentCache(array $additionalTags = []): void
@@ -1663,6 +1692,16 @@ class Asset extends Element\AbstractElement
             }
 
             $this->getDao()->deleteFromThumbnailCache();
+        }
+    }
+
+    public function clearThumbnailsByPaths(array $paths): void
+    {
+        foreach (['thumbnail', 'asset_cache'] as $storageName) {
+            $storage = Storage::get($storageName);
+            foreach ($paths as $path) {
+                $storage->deleteDirectory($path);
+            }
         }
     }
 
