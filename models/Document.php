@@ -674,6 +674,7 @@ class Document extends Element\AbstractElement
                             $parent->setChildren(null);
                         }
                     }
+
                     break; // transaction was successfully completed, so we cancel the loop here -> no restart required
 
                 } catch (Exception $e) {

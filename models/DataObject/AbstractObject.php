@@ -474,6 +474,7 @@ abstract class AbstractObject extends Model\Element\AbstractElement
                             $parent->setChildren(null);
                         }
                     }
+
                     break; // transaction was successfully completed, so we cancel the loop here -> no restart required
 
                 } catch (Exception $e) {
