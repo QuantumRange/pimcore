@@ -1017,7 +1017,7 @@ class Asset extends Element\AbstractElement
 
                         $fullPath = $this->getRealFullPath();
                         if ($fullPath != '/..' && !strpos($fullPath,
-                                '/../') && $this->getKey() !== '.' && $this->getKey() !== '..') {
+                            '/../') && $this->getKey() !== '.' && $this->getKey() !== '..') {
                             $this->deletePhysicalFile();
                         }
 
@@ -1026,6 +1026,7 @@ class Asset extends Element\AbstractElement
                         //remove target parent folder preview thumbnails
                         $this->clearFolderThumbnails($this);
                     }
+
                     break; // transaction was successfully completed, so we cancel the loop here -> no restart required
 
                 } catch (Exception $e) {
