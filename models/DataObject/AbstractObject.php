@@ -448,49 +448,80 @@ abstract class AbstractObject extends Model\Element\AbstractElement
      */
     public function delete(): void
     {
-        $this->dispatchEvent(new DataObjectEvent($this), DataObjectEvents::PRE_DELETE);
-
-        $this->beginTransaction();
-
         try {
-            $this->doDelete();
-            $this->getDao()->delete();
+            $this->dispatchEvent(new DataObjectEvent($this), DataObjectEvents::PRE_DELETE);
 
-            $this->commit();
+            // we wrap the save actions in a loop here, so that we can restart the database transactions in the case it fails
+            // if a transaction fails it gets restarted $maxRetries times, then the exception is thrown out
+            // this is especially useful to avoid problems with deadlocks in multi-threaded environments (forked workers, ...)
+            $maxRetries = 5;
+            for ($retries = 0; $retries < $maxRetries; $retries++) {
 
-            //clear parent data from registry
-            $parentCacheKey = self::getCacheKey($this->getParentId());
-            if (RuntimeCache::isRegistered($parentCacheKey)) {
-                /** @var AbstractObject $parent * */
-                $parent = RuntimeCache::get($parentCacheKey);
-                if ($parent instanceof self) {
-                    $parent->setChildren(null);
+                $this->beginTransaction();
+
+                try {
+                    $this->doDelete();
+                    $this->getDao()->delete();
+
+                    $this->commit();
+
+                    //clear parent data from registry
+                    $parentCacheKey = self::getCacheKey($this->getParentId());
+                    if (RuntimeCache::isRegistered($parentCacheKey)) {
+                        /** @var AbstractObject $parent * */
+                        $parent = RuntimeCache::get($parentCacheKey);
+                        if ($parent instanceof self) {
+                            $parent->setChildren(null);
+                        }
+                    }
+                    break; // transaction was successfully completed, so we cancel the loop here -> no restart required
+
+                } catch (Exception $e) {
+                    try {
+                        $this->rollBack();
+                    } catch (Exception $er) {
+                        // PDO adapter throws exceptions if rollback fails
+                        Logger::info((string)$er);
+                    }
+
+                    if ($e instanceof RetryableException) {
+                        // we try to start the transaction $maxRetries times again (deadlocks, ...)
+                        if ($retries < ($maxRetries - 1)) {
+                            $run = $retries + 1;
+                            $waitTime = random_int(1, 5) * 100000; // microseconds
+                            Logger::warn('Unable to finish transaction (' . $run . ". run) because of the following reason '" . $e->getMessage() . "'. --> Retrying in " . $waitTime . ' microseconds ... (' . ($run + 1) . ' of ' . $maxRetries . ')');
+
+                            usleep($waitTime); // wait specified time until we restart the transaction
+                        } else {
+                            // if the transaction still fail after $maxRetries retries, we throw out the exception
+                            Logger::error('Finally giving up restarting the same transaction again and again, last message: ' . $e->getMessage());
+
+                            throw $e;
+                        }
+                    } else {
+                        throw $e;
+                    }
+
                 }
-            }
-        } catch (Exception $e) {
-            try {
-                $this->rollBack();
-            } catch (Exception $er) {
-                // PDO adapter throws exceptions if rollback fails
-                Logger::info((string) $er);
+
+                // empty object cache
+                $this->clearDependentCache();
+
+                //clear object from registry
+                RuntimeCache::set(self::getCacheKey($this->getId()), null);
+
+                $this->dispatchEvent(new DataObjectEvent($this), DataObjectEvents::POST_DELETE);
             }
 
+        } catch (Exception $e) {
             $failureEvent = new DataObjectEvent($this);
             $failureEvent->setArgument('exception', $e);
             $this->dispatchEvent($failureEvent, DataObjectEvents::POST_DELETE_FAILURE);
 
-            Logger::crit((string) $e);
+            Logger::crit((string)$e);
 
             throw $e;
         }
-
-        // empty object cache
-        $this->clearDependentCache();
-
-        //clear object from registry
-        RuntimeCache::set(self::getCacheKey($this->getId()), null);
-
-        $this->dispatchEvent(new DataObjectEvent($this), DataObjectEvents::POST_DELETE);
     }
 
     public function save(array $parameters = []): static

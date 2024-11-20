@@ -643,47 +643,77 @@ class Document extends Element\AbstractElement
 
     public function delete(): void
     {
-        $this->dispatchEvent(new DocumentEvent($this), DocumentEvents::PRE_DELETE);
-
-        $this->beginTransaction();
 
         try {
-            if ($this->getId() == 1) {
-                throw new Exception('root-node cannot be deleted');
-            }
+            $this->dispatchEvent(new DocumentEvent($this), DocumentEvents::PRE_DELETE);
 
-            $this->doDelete();
-            $this->getDao()->delete();
+            // we wrap the save actions in a loop here, so that we can restart the database transactions in the case it fails
+            // if a transaction fails it gets restarted $maxRetries times, then the exception is thrown out
+            // this is especially useful to avoid problems with deadlocks in multi-threaded environments (forked workers, ...)
+            $maxRetries = 5;
+            for ($retries = 0; $retries < $maxRetries; $retries++) {
 
-            $this->commit();
+                $this->beginTransaction();
 
-            //clear parent data from registry
-            $parentCacheKey = self::getCacheKey($this->getParentId());
-            if (RuntimeCache::isRegistered($parentCacheKey)) {
-                /** @var Document $parent */
-                $parent = RuntimeCache::get($parentCacheKey);
-                if ($parent instanceof self) {
-                    $parent->setChildren(null);
+                try {
+                    if ($this->getId() == 1) {
+                        throw new Exception('root-node cannot be deleted');
+                    }
+
+                    $this->doDelete();
+                    $this->getDao()->delete();
+
+                    $this->commit();
+
+                    //clear parent data from registry
+                    $parentCacheKey = self::getCacheKey($this->getParentId());
+                    if (RuntimeCache::isRegistered($parentCacheKey)) {
+                        /** @var Document $parent */
+                        $parent = RuntimeCache::get($parentCacheKey);
+                        if ($parent instanceof self) {
+                            $parent->setChildren(null);
+                        }
+                    }
+                    break; // transaction was successfully completed, so we cancel the loop here -> no restart required
+
+                } catch (Exception $e) {
+                    try {
+                        $this->rollBack();
+                    } catch (Exception $er) {
+                        // PDO adapter throws exceptions if rollback fails
+                        Logger::error((string)$er);
+                    }
+
+                    // we try to start the transaction $maxRetries times again (deadlocks, ...)
+                    if ($e instanceof DeadlockException && $retries < ($maxRetries - 1)) {
+                        $run = $retries + 1;
+                        $waitTime = rand(1, 5) * 100000; // microseconds
+                        Logger::warn('Unable to finish transaction (' . $run . ". run) because of the following reason '" . $e->getMessage() . "'. --> Retrying in " . $waitTime . ' microseconds ... (' . ($run + 1) . ' of ' . $maxRetries . ')');
+
+                        usleep($waitTime); // wait specified time until we restart the transaction
+                    } else {
+                        // if the transaction still fail after $maxRetries retries, we throw out the exception
+                        throw $e;
+                    }
                 }
+                // clear cache
+                $this->clearDependentCache();
+
+                //clear document from registry
+                RuntimeCache::set(self::getCacheKey($this->getId()), null);
+                RuntimeCache::set(self::getPathCacheKey($this->getRealFullPath()), null);
+
+                $this->dispatchEvent(new DocumentEvent($this), DocumentEvents::POST_DELETE);
             }
         } catch (Exception $e) {
-            $this->rollBack();
+
             $failureEvent = new DocumentEvent($this);
             $failureEvent->setArgument('exception', $e);
             $this->dispatchEvent($failureEvent, DocumentEvents::POST_DELETE_FAILURE);
-            Logger::error((string) $e);
+            Logger::error((string)$e);
 
             throw $e;
         }
-
-        // clear cache
-        $this->clearDependentCache();
-
-        //clear document from registry
-        RuntimeCache::set(self::getCacheKey($this->getId()), null);
-        RuntimeCache::set(self::getPathCacheKey($this->getRealFullPath()), null);
-
-        $this->dispatchEvent(new DocumentEvent($this), DocumentEvents::POST_DELETE);
     }
 
     public function getFullPath(bool $force = false): string
