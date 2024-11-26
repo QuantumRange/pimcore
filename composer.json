@@ -119,7 +119,7 @@
     "symfony/validator": "^6.4",
     "symfony/var-dumper": "^6.4",
     "symfony/web-profiler-bundle": "^6.4",
-    "symfony/webpack-encore-bundle": "^1.7",
+    "symfony/webpack-encore-bundle": "^1.7 || ^2.0",
     "symfony/workflow": "^6.4",
     "symfony/yaml": "^6.4",
     "tijsverkoyen/css-to-inline-styles": "^2.2.3",
