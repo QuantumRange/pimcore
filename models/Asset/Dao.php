@@ -593,14 +593,4 @@ class Dao extends Model\Element\Dao
         $this->db->delete('assets_image_thumbnail_cache', $where);
         unset(self::$thumbnailStatusCache[$assetId]);
     }
-
-    public function deleteFromThumbnailCacheByIds(array $ids): void
-    {
-        $where = 'cid IN (' . implode(',', array_map('intval', $ids)) . ')';
-        $this->db->executeQuery('DELETE FROM `assets_image_thumbnail_cache` WHERE '. $where);
-
-        foreach ($ids as $id) {
-            unset(self::$thumbnailStatusCache[$id]);
-        }
-    }
 }

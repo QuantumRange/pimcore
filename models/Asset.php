@@ -16,6 +16,7 @@
 namespace Pimcore\Model;
 
 use Doctrine\DBAL\Exception\DeadlockException;
+use Doctrine\DBAL\Exception\RetryableException;
 use Exception;
 use InvalidArgumentException;
 use League\Flysystem\FilesystemException;
@@ -150,6 +151,7 @@ class Asset extends Element\AbstractElement
      * @internal
      */
     protected ?int $dataModificationDate = null;
+    private array $fileIssues;
 
     public function getDataModificationDate(): ?int
     {
@@ -525,6 +527,9 @@ class Asset extends Element\AbstractElement
                         $differentOldPath = $oldPath;
 
                         try {
+                            if ($this->getId()===632){
+                                throw new UnableToMoveFile('asd');
+                            }
                             $storage->move($oldPath, $this->getRealFullPath());
                         } catch (UnableToMoveFile $e) {
                             //update children, if unable to move parent
@@ -966,11 +971,6 @@ class Asset extends Element\AbstractElement
             throw new Exception('root-node cannot be deleted');
         }
 
-        if (!$isNested) {
-            $deletedPaths = [];
-            $deletedIds = [];
-        }
-
         try {
             $this->dispatchEvent(new AssetEvent($this), AssetEvents::PRE_DELETE);
 
@@ -985,7 +985,6 @@ class Asset extends Element\AbstractElement
                     if ($this->hasChildren()) {
                         foreach ($this->getChildren() as $child) {
                             $child->delete(true);
-                            $deletedPaths[] = $child->getRealPath() . $child->getId();
                             $deletedIds[] = $child->getId();
                         }
                     }
@@ -1012,20 +1011,16 @@ class Asset extends Element\AbstractElement
 
                     // remove file on filesystem
                     if (!$isNested) {
-                        $deletedPaths[] = $this->getRealPath() . $this->getId();
-                        $deletedIds[] = $this->getId();
-
                         $fullPath = $this->getRealFullPath();
                         if ($fullPath != '/..' && !strpos($fullPath,
                             '/../') && $this->getKey() !== '.' && $this->getKey() !== '..') {
                             $this->deletePhysicalFile();
                         }
 
-                        $this->clearThumbnailsByPaths($deletedPaths);
-                        $this->getDao()->deleteFromThumbnailCacheByIds($deletedIds);
                         //remove target parent folder preview thumbnails
                         $this->clearFolderThumbnails($this);
                     }
+                    $this->clearThumbnails(true);
 
                     break; // transaction was successfully completed, so we cancel the loop here -> no restart required
 
@@ -1037,7 +1032,7 @@ class Asset extends Element\AbstractElement
                         Logger::info((string)$er);
                     }
 
-                    if ($e instanceof DeadlockException && $retries < ($maxRetries - 1)) {
+                    if ($e instanceof RetryableException && $retries < ($maxRetries - 1)) {
                         $run = $retries + 1;
                         $waitTime = rand(1, 5) * 100000; // microseconds
                         Logger::warn('Unable to finish transaction (' . $run . ". run) because of the following reason '" . $e->getMessage() . "'. --> Retrying in " . $waitTime . ' microseconds ... (' . ($run + 1) . ' of ' . $maxRetries . ')');
@@ -1696,16 +1691,6 @@ class Asset extends Element\AbstractElement
         }
     }
 
-    public function clearThumbnailsByPaths(array $paths): void
-    {
-        foreach (['thumbnail', 'asset_cache'] as $storageName) {
-            $storage = Storage::get($storageName);
-            foreach ($paths as $path) {
-                $storage->deleteDirectory($path);
-            }
-        }
-    }
-
     /**
      * @throws FilesystemException
      */
@@ -1721,14 +1706,27 @@ class Asset extends Element\AbstractElement
                 if ($child['type'] === 'file') {
                     $src  = $child['path'];
                     $dest = str_replace($oldPath, $newPath, '/' . $src);
+
+                    if (str_ends_with($src,'/oldtimer-3894855.jpg')){
+                        throw new UnableToMoveFile('asd');
+                    }
                     $storage->move($src, $dest);
                 }
             }
 
             $storage->deleteDirectory($oldPath);
         } catch (UnableToMoveFile $e) {
-            // noting to do
+            $this->setFileIssues($src);
         }
+    }
+
+    function setFileIssues(string $path):void
+    {
+        $this->fileIssues[] = $path;
+    }
+    function getFileIssues(): array
+    {
+        return $this->fileIssues ?? [];
     }
 
     /**
