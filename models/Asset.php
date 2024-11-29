@@ -151,6 +151,7 @@ class Asset extends Element\AbstractElement
      * @internal
      */
     protected ?int $dataModificationDate = null;
+
     private array $fileIssues;
 
     public function getDataModificationDate(): ?int
@@ -527,7 +528,7 @@ class Asset extends Element\AbstractElement
                         $differentOldPath = $oldPath;
 
                         try {
-                            if ($this->getId()===632){
+                            if ($this->getId()===632) {
                                 throw new UnableToMoveFile('asd');
                             }
                             $storage->move($oldPath, $this->getRealFullPath());
@@ -1707,7 +1708,7 @@ class Asset extends Element\AbstractElement
                     $src  = $child['path'];
                     $dest = str_replace($oldPath, $newPath, '/' . $src);
 
-                    if (str_ends_with($src,'/oldtimer-3894855.jpg')){
+                    if (str_ends_with($src, '/oldtimer-3894855.jpg')) {
                         throw new UnableToMoveFile('asd');
                     }
                     $storage->move($src, $dest);
@@ -1720,11 +1721,12 @@ class Asset extends Element\AbstractElement
         }
     }
 
-    function setFileIssues(string $path):void
+    public function setFileIssues(string $path): void
     {
         $this->fileIssues[] = $path;
     }
-    function getFileIssues(): array
+
+    public function getFileIssues(): array
     {
         return $this->fileIssues ?? [];
     }
