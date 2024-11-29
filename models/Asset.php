@@ -152,8 +152,6 @@ class Asset extends Element\AbstractElement
      */
     protected ?int $dataModificationDate = null;
 
-    private array $fileIssues;
-
     public function getDataModificationDate(): ?int
     {
         return $this->dataModificationDate;
@@ -1708,27 +1706,14 @@ class Asset extends Element\AbstractElement
                     $src  = $child['path'];
                     $dest = str_replace($oldPath, $newPath, '/' . $src);
 
-                    if (str_ends_with($src, '/oldtimer-3894855.jpg')) {
-                        throw new UnableToMoveFile('asd');
-                    }
                     $storage->move($src, $dest);
                 }
             }
 
             $storage->deleteDirectory($oldPath);
         } catch (UnableToMoveFile $e) {
-            $this->setFileIssues($src);
+            // do nothing
         }
-    }
-
-    public function setFileIssues(string $path): void
-    {
-        $this->fileIssues[] = $path;
-    }
-
-    public function getFileIssues(): array
-    {
-        return $this->fileIssues ?? [];
     }
 
     /**
