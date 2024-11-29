@@ -526,9 +526,6 @@ class Asset extends Element\AbstractElement
                         $differentOldPath = $oldPath;
 
                         try {
-                            if ($this->getId()===632) {
-                                throw new UnableToMoveFile('asd');
-                            }
                             $storage->move($oldPath, $this->getRealFullPath());
                         } catch (UnableToMoveFile $e) {
                             //update children, if unable to move parent
