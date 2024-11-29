@@ -15,8 +15,6 @@
 
 namespace Pimcore\Model;
 
-use Doctrine\DBAL\Exception\DeadlockException;
-use Doctrine\DBAL\Exception\RetryableException;
 use Exception;
 use InvalidArgumentException;
 use League\Flysystem\FilesystemException;
@@ -482,96 +480,68 @@ class Asset extends Element\AbstractElement
     {
         $isUpdate = false;
         $differentOldPath = null;
+        $updatedChildren = [];
 
-        try {
-            $preEvent = new AssetEvent($this, $parameters);
+        $this->retryableFunction(
+            beforeRetrayables: function () use (&$parameters, &$isUpdate) {
+                $preEvent = new AssetEvent($this, $parameters);
 
-            if ($this->getId()) {
-                $isUpdate = true;
-                $this->dispatchEvent($preEvent, AssetEvents::PRE_UPDATE);
-            } else {
-                $this->dispatchEvent($preEvent, AssetEvents::PRE_ADD);
-            }
-
-            $parameters = $preEvent->getArguments();
-
-            $this->correctPath();
-
-            $parameters['isUpdate'] = $isUpdate; // need for $this->update() for certain types (image, video, document)
-
-            // we wrap the save actions in a loop here, to restart the database transactions in the case it fails
-            // if a transaction fails it gets restarted $maxRetries times, then the exception is thrown out
-            // especially useful to avoid problems with deadlocks in multi-threaded environments (forked workers, ...)
-            $maxRetries = 5;
-            for ($retries = 0; $retries < $maxRetries; $retries++) {
-                $this->beginTransaction();
-
-                try {
-                    if (!$isUpdate) {
-                        $this->getDao()->create();
-                    }
-
-                    // get the old path from the database before the update is done
-                    $oldPath = null;
-                    if ($isUpdate) {
-                        $oldPath = $this->getDao()->getCurrentFullPath();
-                    }
-
-                    $this->update($parameters);
-
-                    $storage = Storage::get('asset');
-                    // if the old path is different from the new path, update all children
-                    $updatedChildren = [];
-                    if ($oldPath && $oldPath != $this->getRealFullPath()) {
-                        $differentOldPath = $oldPath;
-
-                        try {
-                            $storage->move($oldPath, $this->getRealFullPath());
-                        } catch (UnableToMoveFile $e) {
-                            //update children, if unable to move parent
-                            $this->updateChildPaths($storage, $oldPath);
-                        }
-
-                        $this->getDao()->updateWorkspaces();
-
-                        $updatedChildren = $this->getDao()->updateChildPaths($oldPath);
-                        $this->relocateThumbnails($oldPath);
-                    }
-
-                    // lastly create a new version if necessary
-                    // this has to be after the registry update and the DB update, otherwise this would cause problem in the
-                    // $this->__wakeUp() method which is called by $version->save(); (path correction for version restore)
-                    if ($this->getType() != 'folder') {
-                        $this->saveVersion(false, false, $parameters['versionNote'] ?? null);
-                    }
-
-                    $this->commit();
-
-                    break; // transaction was successfully completed, so we cancel the loop here -> no restart required
-                } catch (Exception $e) {
-                    try {
-                        $this->rollBack();
-                    } catch (Exception $er) {
-                        // PDO adapter throws exceptions if rollback fails
-                        Logger::error((string) $er);
-                    }
-
-                    // we try to start the transaction $maxRetries times again (deadlocks, ...)
-                    if ($e instanceof DeadlockException && $retries < ($maxRetries - 1)) {
-                        $run = $retries + 1;
-                        $waitTime = rand(1, 5) * 100000; // microseconds
-                        Logger::warn('Unable to finish transaction (' . $run . ". run) because of the following reason '" . $e->getMessage() . "'. --> Retrying in " . $waitTime . ' microseconds ... (' . ($run + 1) . ' of ' . $maxRetries . ')');
-
-                        usleep($waitTime); // wait specified time until we restart the transaction
-                    } else {
-                        // if the transaction still fail after $maxRetries retries, we throw out the exception
-                        throw $e;
-                    }
+                if ($this->getId()) {
+                    $isUpdate = true;
+                    $this->dispatchEvent($preEvent, AssetEvents::PRE_UPDATE);
+                } else {
+                    $this->dispatchEvent($preEvent, AssetEvents::PRE_ADD);
                 }
-            }
 
-            $additionalTags = [];
-            if (isset($updatedChildren)) {
+                $parameters = $preEvent->getArguments();
+
+                $this->correctPath();
+
+                $parameters['isUpdate'] = $isUpdate; // need for $this->update() for certain types (image, video, document)
+            },
+            retrayableFunc: function () use (&$parameters, &$isUpdate, &$differentOldPath, &$updatedChildren) {
+                if (!$isUpdate) {
+                    $this->getDao()->create();
+                }
+
+                // get the old path from the database before the update is done
+                $oldPath = null;
+                if ($isUpdate) {
+                    $oldPath = $this->getDao()->getCurrentFullPath();
+                }
+
+                $this->update($parameters);
+
+                $storage = Storage::get('asset');
+                // if the old path is different from the new path, update all children
+                $updatedChildren = [];
+                if ($oldPath && $oldPath != $this->getRealFullPath()) {
+                    $differentOldPath = $oldPath;
+
+                    try {
+                        $storage->move($oldPath, $this->getRealFullPath());
+                    } catch (UnableToMoveFile $e) {
+                        //update children, if unable to move parent
+                        $this->updateChildPaths($storage, $oldPath);
+                    }
+
+                    $this->getDao()->updateWorkspaces();
+
+                    $updatedChildren = $this->getDao()->updateChildPaths($oldPath);
+                    $this->relocateThumbnails($oldPath);
+                }
+
+                // lastly create a new version if necessary
+                // this has to be after the registry update and the DB update, otherwise this would cause problem in the
+                // $this->__wakeUp() method which is called by $version->save(); (path correction for version restore)
+                if ($this->getType() != 'folder') {
+                    $this->saveVersion(false, false, $parameters['versionNote'] ?? null);
+                }
+            },
+            afterRetrayables: function () use (&$parameters, &$isUpdate, &$differentOldPath, &$updatedChildren) {
+
+                $additionalTags = [];
+
                 foreach ($updatedChildren as $assetId) {
                     $tag = 'asset_' . $assetId;
                     $additionalTags[] = $tag;
@@ -579,46 +549,47 @@ class Asset extends Element\AbstractElement
                     // remove the child also from registry (internal cache) to avoid path inconsistencies during long running scripts, such as CLI
                     RuntimeCache::set($tag, null);
                 }
-            }
-            $this->clearDependentCache($additionalTags);
 
-            if ($differentOldPath) {
-                $this->renewInheritedProperties();
-            }
+                $this->clearDependentCache($additionalTags);
 
-            // add to queue that saves dependencies
-            $this->addToDependenciesQueue();
-
-            if ($this->getDataChanged()) {
-                if (in_array($this->getType(), ['image', 'video', 'document'])) {
-                    $this->addToUpdateTaskQueue();
-                }
-            }
-
-            $this->setDataChanged(false);
-
-            $postEvent = new AssetEvent($this, $parameters);
-            if ($isUpdate) {
                 if ($differentOldPath) {
-                    $postEvent->setArgument('oldPath', $differentOldPath);
+                    $this->renewInheritedProperties();
                 }
-                $this->dispatchEvent($postEvent, AssetEvents::POST_UPDATE);
-            } else {
-                $this->dispatchEvent($postEvent, AssetEvents::POST_ADD);
-            }
 
-            return $this;
-        } catch (Exception $e) {
-            $failureEvent = new AssetEvent($this, $parameters);
-            $failureEvent->setArgument('exception', $e);
-            if ($isUpdate) {
-                $this->dispatchEvent($failureEvent, AssetEvents::POST_UPDATE_FAILURE);
-            } else {
-                $this->dispatchEvent($failureEvent, AssetEvents::POST_ADD_FAILURE);
-            }
+                // add to queue that saves dependencies
+                $this->addToDependenciesQueue();
 
-            throw $e;
-        }
+                if ($this->getDataChanged()) {
+                    if (in_array($this->getType(), ['image', 'video', 'document'])) {
+                        $this->addToUpdateTaskQueue();
+                    }
+                }
+
+                $this->setDataChanged(false);
+
+                $postEvent = new AssetEvent($this, $parameters);
+                if ($isUpdate) {
+                    if ($differentOldPath) {
+                        $postEvent->setArgument('oldPath', $differentOldPath);
+                    }
+                    $this->dispatchEvent($postEvent, AssetEvents::POST_UPDATE);
+                } else {
+                    $this->dispatchEvent($postEvent, AssetEvents::POST_ADD);
+                }
+            },
+            onFailure: function ($e) use (&$parameters, &$isUpdate) {
+                $failureEvent = new AssetEvent($this, $parameters);
+                $failureEvent->setArgument('exception', $e);
+                if ($isUpdate) {
+                    $this->dispatchEvent($failureEvent, AssetEvents::POST_UPDATE_FAILURE);
+                } else {
+                    $this->dispatchEvent($failureEvent, AssetEvents::POST_ADD_FAILURE);
+                }
+
+            }
+        );
+
+        return $this;
     }
 
     /**
@@ -967,97 +938,67 @@ class Asset extends Element\AbstractElement
             throw new Exception('root-node cannot be deleted');
         }
 
-        try {
-            $this->dispatchEvent(new AssetEvent($this), AssetEvents::PRE_DELETE);
+        $this->retryableFunction(
+            beforeRetrayables: function () {
+                $this->dispatchEvent(new AssetEvent($this), AssetEvents::PRE_DELETE);
+            },
+            retrayableFunc: function () {
+                $this->closeStream();
 
-            $maxRetries = 5;
-            for ($retries = 0; $retries < $maxRetries; $retries++) {
-                $this->beginTransaction();
-
-                try {
-                    $this->closeStream();
-
-                    // remove children
-                    if ($this->hasChildren()) {
-                        foreach ($this->getChildren() as $child) {
-                            $child->delete(true);
-                            $deletedIds[] = $child->getId();
-                        }
-                    }
-
-                    // Dispatch Symfony Message Bus to delete versions
-                    Pimcore::getContainer()->get('messenger.bus.pimcore-core')->dispatch(
-                        new VersionDeleteMessage(Service::getElementType($this), $this->getId())
-                    );
-
-                    // remove all properties
-                    $this->getDao()->deleteAllProperties();
-
-                    // remove all tasks
-                    $this->getDao()->deleteAllTasks();
-
-                    // remove dependencies
-                    $d = $this->getDependencies();
-                    $d->cleanAllForElement($this);
-
-                    // remove from resource
-                    $this->getDao()->delete();
-
-                    $this->commit();
-
-                    // remove file on filesystem
-                    if (!$isNested) {
-                        $fullPath = $this->getRealFullPath();
-                        if ($fullPath != '/..' && !strpos($fullPath,
-                            '/../') && $this->getKey() !== '.' && $this->getKey() !== '..') {
-                            $this->deletePhysicalFile();
-                        }
-
-                        //remove target parent folder preview thumbnails
-                        $this->clearFolderThumbnails($this);
-                    }
-                    $this->clearThumbnails(true);
-
-                    break; // transaction was successfully completed, so we cancel the loop here -> no restart required
-
-                } catch (Exception $e) {
-                    try {
-                        $this->rollBack();
-                    } catch (Exception $er) {
-                        // PDO adapter throws exceptions if rollback fails
-                        Logger::info((string)$er);
-                    }
-
-                    if ($e instanceof RetryableException && $retries < ($maxRetries - 1)) {
-                        $run = $retries + 1;
-                        $waitTime = rand(1, 5) * 100000; // microseconds
-                        Logger::warn('Unable to finish transaction (' . $run . ". run) because of the following reason '" . $e->getMessage() . "'. --> Retrying in " . $waitTime . ' microseconds ... (' . ($run + 1) . ' of ' . $maxRetries . ')');
-
-                        usleep($waitTime); // wait specified time until we restart the transaction
-                    } else {
-                        // if the transaction still fail after $maxRetries retries, we throw out the exception
-                        throw $e;
+                // remove children
+                if ($this->hasChildren()) {
+                    foreach ($this->getChildren() as $child) {
+                        $child->delete(true);
                     }
                 }
+
+                // Dispatch Symfony Message Bus to delete versions
+                Pimcore::getContainer()->get('messenger.bus.pimcore-core')->dispatch(
+                    new VersionDeleteMessage(Service::getElementType($this), $this->getId())
+                );
+
+                // remove all properties
+                $this->getDao()->deleteAllProperties();
+
+                // remove all tasks
+                $this->getDao()->deleteAllTasks();
+
+                // remove dependencies
+                $d = $this->getDependencies();
+                $d->cleanAllForElement($this);
+
+                // remove from resource
+                $this->getDao()->delete();
+
+            },
+            onCommit: function () use ($isNested) {
+                // remove file on filesystem
+                if (!$isNested) {
+                    $fullPath = $this->getRealFullPath();
+                    if ($fullPath != '/..' && !strpos($fullPath,
+                        '/../') && $this->getKey() !== '.' && $this->getKey() !== '..') {
+                        $this->deletePhysicalFile();
+                    }
+
+                    //remove target parent folder preview thumbnails
+                    $this->clearFolderThumbnails($this);
+                }
+                $this->clearThumbnails(true);
+
+                // empty asset cache
+                $this->clearDependentCache();
+
+                // clear asset from registry
+                RuntimeCache::set(self::getCacheKey($this->getId()), null);
+
+                $this->dispatchEvent(new AssetEvent($this), AssetEvents::POST_DELETE);
+            },
+            onFailure: function ($e) {
+                $failureEvent = new AssetEvent($this);
+                $failureEvent->setArgument('exception', $e);
+                $this->dispatchEvent($failureEvent, AssetEvents::POST_DELETE_FAILURE);
             }
-
-            // empty asset cache
-            $this->clearDependentCache();
-
-            // clear asset from registry
-            RuntimeCache::set(self::getCacheKey($this->getId()), null);
-
-            $this->dispatchEvent(new AssetEvent($this), AssetEvents::POST_DELETE);
-
-        } catch (Exception $e) {
-
-            $failureEvent = new AssetEvent($this);
-            $failureEvent->setArgument('exception', $e);
-            $this->dispatchEvent($failureEvent, AssetEvents::POST_DELETE_FAILURE);
-            Logger::crit((string)$e);
-
-            throw $e;
-        }
+        );
     }
 
     public function clearDependentCache(array $additionalTags = []): void
