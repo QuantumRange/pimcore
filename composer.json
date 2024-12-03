@@ -139,6 +139,7 @@
   "require-dev": {
     "codeception/codeception": "^5.0.3",
     "codeception/module-symfony": "^3.1.0",
+    "ergebnis/phpstan-rules": "dev-feature/phpstan",
     "phpstan/phpstan": "^2.0",
     "phpstan/phpstan-symfony": "^2",
     "phpunit/phpunit": "^9.3",
