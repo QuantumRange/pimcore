@@ -801,8 +801,7 @@ abstract class AbstractObject extends Model\Element\AbstractElement
 
     public function setParentId(?int $parentId): static
     {
-        $parentId = (int) $parentId;
-        if ($parentId != $this->parentId) {
+        if ($parentId !== $this->parentId) {
             $this->markFieldDirty('parentId');
         }
 
@@ -875,7 +874,7 @@ abstract class AbstractObject extends Model\Element\AbstractElement
 
     public function setParent(?ElementInterface $parent): static
     {
-        $newParentId = $parent instanceof self ? $parent->getId() : 0;
+        $newParentId = $parent instanceof self ? $parent->getId() : null;
         $this->setParentId($newParentId);
         /** @var Element\AbstractElement $parent */
         $this->parent = $parent;

@@ -125,7 +125,6 @@ abstract class AbstractElement extends Model\AbstractModel implements ElementInt
 
     public function setParentId(?int $parentId): static
     {
-        $parentId = (int) $parentId;
         $this->parentId = $parentId;
         $this->parent = null;
 
@@ -216,8 +215,9 @@ abstract class AbstractElement extends Model\AbstractModel implements ElementInt
 
     public function getParent(): ?AbstractElement
     {
-        if ($this->parent === null && $this->getParentId() !== null) {
-            $parent = Service::getElementById(Service::getElementType($this), $this->getParentId());
+        $parentId = $this->getParentId();
+        if ($this->parent === null && $parentId !== null && $parentId !== 0) {
+            $parent = Service::getElementById(Service::getElementType($this), $parentId);
             $this->setParent($parent);
         }
 

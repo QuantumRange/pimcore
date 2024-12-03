@@ -100,7 +100,7 @@ framework:
                     s: [ 'class', 'id' ]
                     iframe: [ 'frameborder', 'height', 'longdesc', 'name', 'sandbox', 'scrolling', 'src', 'title', 'width' ]
                     br: ''
-                    img: [ 'class', 'alt', 'style', 'src' ]
+                    img: [ 'class', 'id', 'alt', 'style', 'src' ]
                     hr: ''
             pimcore.translation_sanitizer:
                 allow_attributes:
