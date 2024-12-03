@@ -15,19 +15,19 @@ parameters:
         - bundles/SimpleBackendSearchBundle/src/DataProvider/GDPR/DataObjects.php
 
     symfony:
-        container_xml_path: var/cache/test/App_KernelTestDebugContainer.xml
+        containerXmlPath: var/cache/test/App_KernelTestDebugContainer.xml
 
     ignoreErrors:
         - '~^Unsafe usage of new static\(\)~'
+        -
+            identifier: missingType.generics
+        -
+            identifier: missingType.iterableValue
 
     # see https://phpstan.org/config-reference#universal-object-crates
     universalObjectCratesClasses:
         - Pimcore\Config\Config
         - Pimcore\Templating\Model\ViewModel
-
-    checkGenericClassInNonGenericObjectType: false
-    checkMissingIterableValueType: false
-    checkAlwaysTrueCheckTypeFunctionCall: true
 
     ergebnis:
         final:
