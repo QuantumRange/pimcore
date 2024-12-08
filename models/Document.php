@@ -329,7 +329,7 @@ class Document extends Element\AbstractElement
                     );
                 }
             },
-            afterRetrayables: function () use (&$isUpdate, &$differentOldPath, &$updatedChildren, &$parameters) {
+            onCommit: function () use (&$isUpdate, &$differentOldPath, &$updatedChildren, &$parameters) {
                 $additionalTags = [];
                 foreach ($updatedChildren as $updatedDocument) {
                     $tag = self::getCacheKey($updatedDocument['id']);

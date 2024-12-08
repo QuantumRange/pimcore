@@ -733,8 +733,7 @@ abstract class AbstractElement extends Model\AbstractModel implements ElementInt
     }
 
     protected function retryableFunction(?callable $beforeRetrayables = null, ?callable $retrayableFunc = null,
-        ?callable $onCommit = null, ?callable $onBeforeRetry = null,
-        ?callable $afterRetrayables = null, ?callable $onFailure = null,
+        ?callable $onCommit = null, ?callable $onBeforeRetry = null, ?callable $onFailure = null,
         int $maxRetries = 5): void
     {
         try {
@@ -779,9 +778,6 @@ abstract class AbstractElement extends Model\AbstractModel implements ElementInt
                     }
 
                 }
-            }
-            if ($afterRetrayables instanceof Closure) {
-                $afterRetrayables();
             }
 
         } catch (Exception $e) {

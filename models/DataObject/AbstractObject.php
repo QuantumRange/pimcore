@@ -466,7 +466,7 @@ abstract class AbstractObject extends Model\Element\AbstractElement
                     }
                 }
             },
-            afterRetrayables: function () {
+            onCommit: function () {
                 // empty object cache
                 $this->clearDependentCache();
 
@@ -547,7 +547,7 @@ abstract class AbstractObject extends Model\Element\AbstractElement
                     throw new Element\ValidationException('unique constraint violation', 0, $e);
                 }
             },
-            afterRetrayables: function () use (&$isUpdate, &$parameters, &$differentOldPath, &$updatedChildren, &$isDirtyDetectionDisabled) {
+            onCommit: function () use (&$isUpdate, &$parameters, &$differentOldPath, &$updatedChildren, &$isDirtyDetectionDisabled) {
                 $additionalTags = [];
                 if (isset($updatedChildren)) {
                     foreach ($updatedChildren as $objectId) {

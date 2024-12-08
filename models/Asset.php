@@ -538,7 +538,7 @@ class Asset extends Element\AbstractElement
                     $this->saveVersion(false, false, $parameters['versionNote'] ?? null);
                 }
             },
-            afterRetrayables: function () use (&$parameters, &$isUpdate, &$differentOldPath, &$updatedChildren) {
+            onCommit: function () use (&$parameters, &$isUpdate, &$differentOldPath, &$updatedChildren) {
 
                 $additionalTags = [];
 
