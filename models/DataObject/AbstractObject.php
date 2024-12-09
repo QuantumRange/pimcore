@@ -465,8 +465,6 @@ abstract class AbstractObject extends Model\Element\AbstractElement
                         $parent->setChildren(null);
                     }
                 }
-            },
-            onCommit: function () {
                 // empty object cache
                 $this->clearDependentCache();
 
