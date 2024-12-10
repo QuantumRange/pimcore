@@ -59,13 +59,14 @@ use Symfony\Component\HttpKernel\KernelInterface;
 use Symfony\Component\Process\Exception\ProcessFailedException;
 use Symfony\Component\Process\Process;
 use Throwable;
+use function class_exists;
 
 /**
  * @internal
  */
 class Installer
 {
-    const RECOMMENDED_BUNDLES = ['PimcoreSimpleBackendSearchBundle'];
+    private array $recommendedBundles = ['PimcoreSimpleBackendSearchBundle'];
 
     public const INSTALLABLE_BUNDLES = [
         'PimcoreApplicationLoggerBundle' => PimcoreApplicationLoggerBundle::class,
@@ -174,6 +175,10 @@ class Installer
     ) {
         $this->logger = $logger;
         $this->eventDispatcher = $eventDispatcher;
+
+        if(class_exists('Pimcore\Bundle\QuillBundle\PimcoreQuillBundle')) {
+            $this->recommendedBundles[] = 'PimcoreQuillBundle';
+        }
     }
 
     public function setDbCredentials(array $dbCredentials = []): void
@@ -220,7 +225,7 @@ class Installer
 
     public function dispatchBundleSetupEvent(): BundleSetupEvent
     {
-        return $this->eventDispatcher->dispatch(new BundleSetupEvent(self::INSTALLABLE_BUNDLES, self::RECOMMENDED_BUNDLES), InstallEvents::EVENT_BUNDLE_SETUP);
+        return $this->eventDispatcher->dispatch(new BundleSetupEvent(self::INSTALLABLE_BUNDLES, $this->recommendedBundles), InstallEvents::EVENT_BUNDLE_SETUP);
     }
 
     public function checkPrerequisites(Connection $db = null): array
