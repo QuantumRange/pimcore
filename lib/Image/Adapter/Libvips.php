@@ -75,7 +75,7 @@ class Libvips extends Adapter
             $format = $this->sourceImageFormat;
         }
 
-        $savePath = $path . "." . $format;
+        $savePath = $path . '.' . $format;
 
         $this->resource->writeToFile($savePath, [
             'Q' => $quality,
@@ -109,7 +109,7 @@ class Libvips extends Adapter
 
         // Resize the image with separate scales for width and height
         $resizedImage = $this->resource->resize($scaleWidth, [
-            'vscale' => $scaleHeight
+            'vscale' => $scaleHeight,
         ]);
 
         $this->resource = $resizedImage;
