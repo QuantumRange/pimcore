@@ -154,11 +154,13 @@
     "ext-sockets": "*",
     "ext-imagick": "^3.4.0",
     "ext-redis": "*",
+    "ext-ffi": "*",
     "gotenberg/gotenberg-php": "^2.0 - Required for generating pdf via Gotenberg in assets preview (LibreOffice), page preview, version diff and web2print",
     "elasticsearch/elasticsearch": "Required for Elastic Search service",
     "chrome-php/chrome": "Optional for Documents Page Previews when requiring gotenberg-php v2, but required if you opt for gotenberg-php v1",
     "webmozarts/console-parallelization": "Required for parallelization of console commands",
     "symfony/dotenv": "Required for loading environment vars from .env files",
+    "jcupitt/vips": "Required when using LibVips image adapter",
     "pimcore/admin-ui-classic-bundle": "^1.5.0"
   },
   "autoload": {
