@@ -66,14 +66,14 @@ class LogArchiveTask implements TaskInterface
         if ($db->fetchOne(sprintf($sql, 'COUNT(*)')) > 0) {
 
             $storageEngine = $this->config['applicationlog']['archive_db_table_storage_engine'];
-            if(empty($storageEngine)) {
+            if (empty($storageEngine)) {
                 // auto-detect if no storage engine is defined in config
                 $engines = $db->fetchFirstColumn('SHOW ENGINES;');
-                if(in_arrayi('archive', $engines)) {
+                if (in_arrayi('archive', $engines)) {
                     $storageEngine = 'ARCHIVE';
-                } elseif(in_arrayi('aria', $engines)) {
+                } elseif (in_arrayi('aria', $engines)) {
                     $storageEngine = 'Aria';
-                } elseif(in_arrayi('myisam', $engines)) {
+                } elseif (in_arrayi('myisam', $engines)) {
                     $storageEngine = 'MyISAM';
                 } else {
                     $storageEngine = 'InnoDB';
@@ -93,7 +93,7 @@ class LogArchiveTask implements TaskInterface
                        relatedobject BIGINT(20),
                        relatedobjecttype ENUM('object', 'document', 'asset'),
                        maintenanceChecked TINYINT(1)
-                    ) ENGINE = " . $storageEngine . " ROW_FORMAT = DEFAULT;");
+                    ) ENGINE = " . $storageEngine . ' ROW_FORMAT = DEFAULT;');
 
             $db->executeQuery('INSERT INTO '.$tablename.' '.sprintf($sql, '*'));
 
