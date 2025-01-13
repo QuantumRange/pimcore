@@ -64,8 +64,19 @@ class QuantityValueRange extends AbstractQuantityValue
         $this->markMeDirty();
     }
 
-    public function getRange(int $step = 1): array
+    public function getRange(int|float $step = 1): array
     {
+        $delta = $this->getMaximum() - $this->getMinimum();
+
+        // range throws when used with $step greater then $delta
+        if (abs($step) > abs($delta)) {
+            if ($step > 0) {
+                return [$this->minimum, $this->maximum];
+            } else {
+                return [$this->maximum, $this->minimum];
+            }
+        }
+
         return range($this->getMinimum(), $this->getMaximum(), $step);
     }
 
